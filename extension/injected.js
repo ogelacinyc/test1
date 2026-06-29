@@ -1,110 +1,105 @@
-// injected.js — main world (페이지의 window와 동일한 실행 컨텍스트)
-// 역할: SPA가 실행하는 fetch / XHR을 후킹하여 미디어 ID를 추출한다.
+// injected.js — main world
+// NCP 콘솔 세션 쿠키를 그대로 사용해 목록 API를 자동 순회한다.
 
 (function () {
-  let config = {};
+  let _config = {};
 
-  // content.js로부터 설정 수신
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
     const msg = event.data;
     if (!msg || msg.__source !== 'mmig_content') return;
+
     if (msg.type === 'CONFIG') {
-      config = msg.config || {};
+      _config = msg.config || {};
+    } else if (msg.type === 'START_COLLECT') {
+      autoCollect(msg.config || _config);
     }
   });
 
-  // content.js에 준비 완료 신호 전송 → content.js가 설정을 보내줌
+  // content.js에 준비 신호 → config 수신
   window.postMessage({ __source: 'mmig_injected', type: 'READY' }, '*');
 
-  // ─── 유틸 ────────────────────────────────────────────────────────────────
+  // ── 유틸 ──────────────────────────────────────────────────────────────────
 
   function getByPath(obj, path) {
     if (!path || obj == null) return obj;
     return path.split('.').reduce((acc, k) => acc?.[k], obj);
   }
 
-  function urlMatchesPattern(url, pattern) {
-    if (!pattern) return false;
-    try {
-      return new RegExp(pattern).test(url);
-    } catch {
-      return url.includes(pattern);
+  function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  function post(data) {
+    window.postMessage({ __source: 'mmig_injected', ...data }, '*');
+  }
+
+  // ── 자동 순회 수집 ────────────────────────────────────────────────────────
+
+  async function autoCollect(cfg) {
+    const {
+      listApiUrl,
+      pageParam      = 'page',
+      sizeParam      = 'size',
+      pageSize       = '20',
+      startPage      = '0',
+      contentPath    = 'content',
+      totalPagesPath = 'totalPages',
+      idField        = 'vodFileId',
+      cdnUrlField    = 'cdnUrl',
+      fileNameField  = 'fileName',
+      fileSizeField  = 'fileSize',
+    } = cfg;
+
+    if (!listApiUrl) {
+      post({ type: 'COLLECT_ERROR', error: '설정에서 목록 API URL을 먼저 입력하세요.' });
+      return;
     }
-  }
 
-  function extractIds(json) {
-    if (!config.idJsonPath) return [];
-    try {
-      const arr = getByPath(json, config.idJsonPath);
-      if (!Array.isArray(arr)) return [];
-      const field = config.idFieldName || 'id';
-      return arr
-        .map((item) => (typeof item === 'object' && item !== null ? item[field] : item))
-        .filter(Boolean)
-        .map(String);
-    } catch {
-      return [];
-    }
-  }
+    let page       = parseInt(startPage, 10);
+    let totalPages = null;
 
-  function handleJson(url, json) {
-    if (!config.listApiPattern) return;
-    if (!urlMatchesPattern(url, config.listApiPattern)) return;
-    const ids = extractIds(json);
-    if (ids.length === 0) return;
-    window.postMessage(
-      { __source: 'mmig_injected', type: 'IDS_FOUND', ids, sourceUrl: url },
-      '*'
-    );
-  }
-
-  // ─── fetch 후킹 ──────────────────────────────────────────────────────────
-
-  const _fetch = window.fetch;
-  window.fetch = async function (...args) {
-    const response = await _fetch.apply(this, args);
-    const url =
-      typeof args[0] === 'string'
-        ? args[0]
-        : args[0] instanceof Request
-        ? args[0].url
-        : String(args[0]);
-
-    try {
-      const ct = response.headers.get('content-type') || '';
-      if (ct.includes('json')) {
-        const clone = response.clone();
-        clone
-          .json()
-          .then((json) => handleJson(url, json))
-          .catch(() => {});
-      }
-    } catch {}
-
-    return response;
-  };
-
-  // ─── XMLHttpRequest 후킹 ─────────────────────────────────────────────────
-
-  const _open = XMLHttpRequest.prototype.open;
-  const _send = XMLHttpRequest.prototype.send;
-
-  XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-    this.__mmig_url = url;
-    return _open.apply(this, [method, url, ...rest]);
-  };
-
-  XMLHttpRequest.prototype.send = function (...args) {
-    this.addEventListener('load', function () {
-      if (this.status < 200 || this.status >= 300) return;
-      const ct = this.getResponseHeader('content-type') || '';
-      if (!ct.includes('json')) return;
+    while (totalPages === null || page < totalPages) {
       try {
-        const json = JSON.parse(this.responseText);
-        handleJson(this.__mmig_url || '', json);
-      } catch {}
-    });
-    return _send.apply(this, args);
-  };
+        const sep = listApiUrl.includes('?') ? '&' : '?';
+        const url = `${listApiUrl}${sep}${pageParam}=${page}&${sizeParam}=${pageSize}`;
+
+        const resp = await fetch(url, { credentials: 'include' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} — ${url}`);
+        const json = await resp.json();
+
+        // 첫 페이지에서 전체 페이지 수 파악
+        if (totalPages === null) {
+          const tp = getByPath(json, totalPagesPath);
+          totalPages = parseInt(tp, 10) || 1;
+        }
+
+        const raw = getByPath(json, contentPath);
+        const items = (Array.isArray(raw) ? raw : [])
+          .map((item) => ({
+            id:       String(item[idField]       ?? ''),
+            cdnUrl:   String(item[cdnUrlField]   ?? ''),
+            fileName: String(item[fileNameField] ?? ''),
+            fileSize: item[fileSizeField] != null ? Number(item[fileSizeField]) : null,
+          }))
+          .filter((item) => item.id && item.cdnUrl);
+
+        post({
+          type: 'COLLECT_PROGRESS',
+          page: page + 1,
+          totalPages,
+          items,
+        });
+
+      } catch (err) {
+        post({ type: 'COLLECT_ERROR', page, error: err.message });
+        break;
+      }
+
+      page++;
+      if (totalPages === null || page < totalPages) await sleep(300); // API 부하 방지
+    }
+
+    post({ type: 'COLLECT_DONE' });
+  }
 })();
