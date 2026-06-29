@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "미디어 이관 도우미",
+  "version": "1.0.0",
+  "description": "소스 서비스의 VOD 미디어를 목적지 서비스로 이관합니다 (just-in-time 서명 URL 처리)",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "미디어 이관 도우미"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["injected.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

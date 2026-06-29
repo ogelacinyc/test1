@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>미디어 이관 도우미</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 13px;
+      background: #0f1117;
+      color: #e2e8f0;
+      width: 420px;
+      min-height: 200px;
+    }
+
+    /* ── 헤더 ── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 16px 10px;
+      border-bottom: 1px solid #1e2230;
+    }
+    .header-title { font-size: 15px; font-weight: 700; flex: 1; }
+    .badge {
+      background: #1e2230;
+      border: 1px solid #2e3550;
+      border-radius: 10px;
+      padding: 2px 10px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    .badge span { color: #60a5fa; font-weight: 700; }
+    .btn-icon {
+      background: none;
+      border: 1px solid #2e3550;
+      color: #64748b;
+      border-radius: 6px;
+      padding: 3px 8px;
+      cursor: pointer;
+      font-size: 11px;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .btn-icon:hover { border-color: #ef4444; color: #ef4444; }
+
+    /* ── 설정 ── */
+    details { border-bottom: 1px solid #1e2230; }
+    summary {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 16px;
+      cursor: pointer;
+      font-weight: 600;
+      color: #94a3b8;
+      font-size: 12px;
+      user-select: none;
+      list-style: none;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::before {
+      content: '▶';
+      font-size: 9px;
+      transition: transform 0.2s;
+      display: inline-block;
+    }
+    details[open] summary::before { transform: rotate(90deg); }
+    summary:hover { color: #e2e8f0; }
+
+    .settings-body {
+      padding: 0 16px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #3b82f6;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding-top: 4px;
+    }
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      color: #94a3b8;
+      font-size: 12px;
+    }
+    label span { color: #cbd5e1; }
+    input {
+      background: #1e2230;
+      border: 1px solid #2e3550;
+      border-radius: 6px;
+      color: #e2e8f0;
+      font-size: 12px;
+      padding: 6px 10px;
+      outline: none;
+      width: 100%;
+      transition: border-color 0.15s;
+    }
+    input::placeholder { color: #475569; }
+    input:focus { border-color: #3b82f6; }
+    input[type="password"] { letter-spacing: 0.08em; }
+
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    .save-btn {
+      margin-top: 4px;
+      background: #1d4ed8;
+      border: none;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 7px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .save-btn:hover { background: #2563eb; }
+    .save-toast { font-size: 11px; color: #22c55e; height: 14px; text-align: center; }
+
+    /* ── 컨트롤 ── */
+    .controls {
+      padding: 12px 16px;
+      border-bottom: 1px solid #1e2230;
+    }
+    .start-btn {
+      width: 100%;
+      padding: 10px;
+      background: #16a34a;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .start-btn:hover:not(:disabled) { background: #15803d; }
+    .start-btn:disabled { background: #374151; color: #6b7280; cursor: not-allowed; }
+    .start-btn.running { background: #b91c1c; }
+    .start-btn.running:hover { background: #991b1b; }
+
+    /* ── 진행 상황 ── */
+    #progress-section { padding: 12px 16px 0; }
+
+    .progress-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .stat {
+      background: #1e2230;
+      border-radius: 6px;
+      padding: 8px 6px;
+      text-align: center;
+    }
+    .stat-num { font-size: 18px; font-weight: 700; line-height: 1; }
+    .stat-label { font-size: 10px; color: #64748b; margin-top: 2px; }
+    .stat.s-total .stat-num { color: #94a3b8; }
+    .stat.s-done  .stat-num { color: #22c55e; }
+    .stat.s-skip  .stat-num { color: #f59e0b; }
+    .stat.s-fail  .stat-num { color: #ef4444; }
+
+    .progress-bar-track {
+      height: 4px;
+      background: #1e2230;
+      border-radius: 2px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: #3b82f6;
+      border-radius: 2px;
+      transition: width 0.3s ease;
+      width: 0%;
+    }
+
+    /* ── 로그 ── */
+    .log-header {
+      font-size: 11px;
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .log-box {
+      background: #0a0d14;
+      border: 1px solid #1e2230;
+      border-radius: 6px;
+      height: 160px;
+      overflow-y: auto;
+      padding: 8px;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 11px;
+    }
+    .log-entry {
+      display: flex;
+      gap: 6px;
+      padding: 2px 0;
+      border-bottom: 1px solid #0f1117;
+    }
+    .log-entry:last-child { border-bottom: none; }
+    .log-icon { flex-shrink: 0; width: 14px; text-align: center; }
+    .log-id { color: #60a5fa; flex-shrink: 0; }
+    .log-msg { color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .le-success .log-icon { color: #22c55e; }
+    .le-skipped .log-icon { color: #f59e0b; }
+    .le-failed  .log-icon { color: #ef4444; }
+
+    .footer { height: 12px; }
+  </style>
+</head>
+<body>
+
+<!-- ── 헤더 ── -->
+<div class="header">
+  <div class="header-title">🎬 미디어 이관 도우미</div>
+  <div class="badge">수집된 ID <span id="id-count">0</span>개</div>
+  <button class="btn-icon" id="clear-btn" title="수집된 ID 초기화">초기화</button>
+</div>
+
+<!-- ── 설정 ── -->
+<details id="settings-panel">
+  <summary>설정</summary>
+  <div class="settings-body">
+
+    <div class="section-label">소스 설정</div>
+
+    <label>
+      <span>목록 API URL 패턴 <small>(정규식, fetch/XHR URL 매칭)</small></span>
+      <input id="listApiPattern" placeholder="예: /api/v1/media/list 또는 media\.example\.com/vod" />
+    </label>
+    <div class="row">
+      <label>
+        <span>ID 배열 JSON 경로</span>
+        <input id="idJsonPath" placeholder="예: data.items" />
+      </label>
+      <label>
+        <span>ID 필드명</span>
+        <input id="idFieldName" placeholder="예: id" value="id" />
+      </label>
+    </div>
+    <label>
+      <span>서명 URL 발급 엔드포인트 <small>({id} 포함)</small></span>
+      <input id="signedUrlEndpoint" placeholder="예: https://source.com/api/media/{id}/signed-url" />
+    </label>
+    <label>
+      <span>서명 URL JSON 경로</span>
+      <input id="signedUrlJsonPath" placeholder="예: data.url 또는 result.playUrl" />
+    </label>
+
+    <div class="section-label" style="margin-top:4px">목적지 설정</div>
+
+    <label>
+      <span>업로드 API URL</span>
+      <input id="destinationUrl" placeholder="예: https://your-api.com/v1/media/upload" />
+    </label>
+    <label>
+      <span>Bearer 토큰</span>
+      <input id="bearerToken" type="password" placeholder="eyJhbGci..." />
+    </label>
+    <div class="row">
+      <label>
+        <span>multipart 필드명</span>
+        <input id="fieldName" value="file" />
+      </label>
+      <label>
+        <span>파일명 템플릿</span>
+        <input id="filenameTemplate" value="{id}.mp4" />
+      </label>
+    </div>
+
+    <button class="save-btn" id="save-btn">설정 저장</button>
+    <div class="save-toast" id="save-toast"></div>
+  </div>
+</details>
+
+<!-- ── 이관 시작 ── -->
+<div class="controls">
+  <button class="start-btn" id="start-btn" disabled>이관 시작</button>
+</div>
+
+<!-- ── 진행 상황 ── -->
+<div id="progress-section" hidden>
+  <div class="progress-stats">
+    <div class="stat s-total">
+      <div class="stat-num" id="stat-total">0</div>
+      <div class="stat-label">전체</div>
+    </div>
+    <div class="stat s-done">
+      <div class="stat-num" id="stat-done">0</div>
+      <div class="stat-label">완료</div>
+    </div>
+    <div class="stat s-skip">
+      <div class="stat-num" id="stat-skip">0</div>
+      <div class="stat-label">스킵</div>
+    </div>
+    <div class="stat s-fail">
+      <div class="stat-num" id="stat-fail">0</div>
+      <div class="stat-label">실패</div>
+    </div>
+  </div>
+
+  <div class="progress-bar-track">
+    <div class="progress-bar-fill" id="progress-bar"></div>
+  </div>
+
+  <div class="log-header">
+    <span>처리 로그</span>
+    <span id="log-current-item"></span>
+  </div>
+  <div class="log-box" id="log-box"></div>
+</div>
+
+<div class="footer"></div>
+
+<script src="popup.js"></script>
+</body>
+</html>
